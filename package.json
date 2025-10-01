@@ -1,0 +1,47 @@
+{
+  "name": "uzbetube",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",               
+    "dev:fast": "next dev --turbopack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "backup": "node scripts/firestore-backup.cjs"
+  },
+
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.899.0",
+    "@sentry/nextjs": "^10.15.0",
+    "@upstash/ratelimit": "^2.0.6",
+    "@upstash/redis": "^1.31.25",
+    "bcryptjs": "^3.0.2",
+    "busboy": "^1.6.0",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "dotenv": "^17.2.3",
+    "firebase": "^12.3.0",
+    "firebase-admin": "^13.5.0",
+    "hls.js": "^1.6.13",
+    "lucide-react": "^0.544.0",
+    "next": "15.5.4",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.4",
+    "tailwindcss": "^4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5"
+  }
+}
+
