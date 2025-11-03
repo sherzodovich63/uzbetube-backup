@@ -1,121 +1,146 @@
 // src/app/api/admin/movies/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import { getFirestore, serverTimestamp } from "firebase-admin/firestore";
-import { getAuth } from "firebase-admin/auth";
-import "@/lib/firebase-admin"; // init once
+import { adminDb } from "@/lib/firebase-admin";
+import { FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
 
+export const runtime = "nodejs";
+
+// ✅ Validatsiya sxemasi (stringdan coercion bilan)
 const MovieSchema = z.object({
   title: z.string().min(1),
-  year: z.number().int().min(1900).max(new Date().getFullYear() + 1),
-  poster: z.string().url(),
-  genres: z.array(z.string()).min(1),
-  description: z.string().min(1),
-  cast: z.array(z.string()).optional().default([]),
-  hls: z.string().url(),
-  published: z.boolean().optional().default(false),
-  slug: z.string().optional(), // optional; auto-generate if empty
+  year: z.coerce.number().int().min(1900).max(new Date().getFullYear() + 1).optional(),
+  posterUrl: z.string().url().optional(),
+  genres: z.string().optional(), // vergul bilan string
+  description: z.string().optional(),
+  cast: z.string().optional(),
+  hls: z.string().optional(),
+  sources: z.array(z.object({ type: z.string(), url: z.string().url() })).optional(),
+  isPublished: z.boolean().optional().default(true),
 });
 
 function slugify(s: string) {
   return s
     .toLowerCase()
-    .replace(/[^a-z0-9\u0400-\u04FF\s-]/g, "") // lotin/kirilni ruxsat qilamiz
+    .replace(/[^a-z0-9\u0400-\u04FF\s-]/g, "")
     .trim()
     .replace(/\s+/g, "-")
     .replace(/-+/g, "-");
 }
 
-async function requireAdmin(req: NextRequest) {
-  // ID token: (1) Authorization: Bearer <token> yoki (2) cookie "idToken"
-  const hdr = req.headers.get("authorization") || "";
-  const bearer = hdr.startsWith("Bearer ") ? hdr.slice(7) : null;
-  const token = bearer ?? req.cookies.get("idToken")?.value;
-  if (!token) throw new Error("UNAUTHENTICATED");
-
-  const decoded = await getAuth().verifyIdToken(token);
-  if (!decoded.admin) throw new Error("FORBIDDEN");
-  return decoded;
+function json(data: any, status = 200) {
+  const res = NextResponse.json(data, { status });
+  res.headers.set("Cache-Control", "no-store");
+  return res;
 }
 
+/**
+ * ✅ Secret orqali oddiy admin himoya (Bearer token shart emas)
+ */
+function checkSecret(req: NextRequest) {
+  const clientSecret = req.headers.get("x-admin-secret") || "";
+  const serverSecret = process.env.NEXT_PUBLIC_ADMIN_SECRET || "";
+  if (!serverSecret || clientSecret !== serverSecret) {
+    throw Object.assign(new Error("UNAUTHORIZED"), { code: 401 });
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* 🟢 CREATE (POST) */
+/* -------------------------------------------------------------------------- */
 export async function POST(req: NextRequest) {
   try {
-    await requireAdmin(req);
+    checkSecret(req);
     const body = await req.json();
     const parsed = MovieSchema.parse(body);
 
-    const db = getFirestore();
+    const slug = slugify(parsed.title + (parsed.year ? `-${parsed.year}` : ""));
+    const ref = adminDb.collection("movies").doc(slug);
+
+    const exists = (await ref.get()).exists;
+    if (exists) return json({ ok: false, code: "SLUG_EXISTS" }, 409);
+
+    const genres = parsed.genres
+      ? parsed.genres.split(",").map((g) => g.trim()).filter(Boolean)
+      : [];
+    const cast = parsed.cast
+      ? parsed.cast.split(",").map((c) => c.trim()).filter(Boolean)
+      : [];
+
     const doc = {
-      ...parsed,
-      slug: parsed.slug && parsed.slug.length ? slugify(parsed.slug) : slugify(parsed.title),
+      title: parsed.title,
       titleLower: parsed.title.toLowerCase(),
-      isPublished: parsed.published ?? false,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
+      year: parsed.year ?? null,
+      description: parsed.description ?? "",
+      posterUrl: parsed.posterUrl ?? "",
+      genres,
+      cast,
+      hls: parsed.hls ?? "",
+      isPublished: parsed.isPublished ?? true,
+      sources: parsed.sources ?? [],
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
     };
 
-    await db.collection("movies").doc(doc.slug).set(doc, { merge: false });
-    return NextResponse.json({ ok: true, slug: doc.slug }, { status: 201 });
+    await ref.set(doc);
+    return json({ ok: true, slug }, 201);
   } catch (e: any) {
-    const msg = e?.message || "Bad Request";
-    const code =
-      msg === "UNAUTHENTICATED" ? 401 :
-      msg === "FORBIDDEN" ? 403 :
-      e instanceof z.ZodError ? 400 : 500;
-    return NextResponse.json({ ok: false, error: msg }, { status: code });
+    console.error("POST /api/admin/movies error:", e);
+    const code = e?.code || (e instanceof z.ZodError ? 400 : 500);
+    const msg =
+      e instanceof z.ZodError
+        ? { code: "VALIDATION_ERROR", issues: e.issues }
+        : { code: e.message || "UNKNOWN" };
+    return json({ ok: false, ...msg }, code);
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* 🟡 UPDATE (PUT) */
+/* -------------------------------------------------------------------------- */
 export async function PUT(req: NextRequest) {
   try {
-    await requireAdmin(req);
+    checkSecret(req);
     const body = await req.json();
     const slug = slugify(String(body.slug || ""));
-    if (!slug) throw new Error("slug_required");
+    if (!slug) return json({ ok: false, code: "slug_required" }, 400);
 
-    const patch = {} as any;
+    const patch: Record<string, any> = { updatedAt: FieldValue.serverTimestamp() };
     if (body.title) {
-      patch.title = String(body.title);
-      patch.titleLower = String(body.title).toLowerCase();
+      patch.title = body.title;
+      patch.titleLower = body.title.toLowerCase();
     }
-    if (typeof body.published === "boolean") patch.isPublished = body.published;
-    if (body.poster) patch.poster = String(body.poster);
-    if (Array.isArray(body.genres)) patch.genres = body.genres;
-    if (body.description) patch.description = String(body.description);
-    if (Array.isArray(body.cast)) patch.cast = body.cast;
-    if (body.hls) patch.hls = String(body.hls);
+    if (body.description) patch.description = body.description;
+    if (body.posterUrl) patch.posterUrl = body.posterUrl;
+    if (body.genres)
+      patch.genres = body.genres.split(",").map((s: string) => s.trim());
+    if (body.cast)
+      patch.cast = body.cast.split(",").map((s: string) => s.trim());
+    if (body.hls) patch.hls = body.hls;
+    if (typeof body.isPublished === "boolean") patch.isPublished = body.isPublished;
 
-    patch.updatedAt = serverTimestamp();
-
-    const db = getFirestore();
-    await db.collection("movies").doc(slug).set(patch, { merge: true });
-    return NextResponse.json({ ok: true });
+    await adminDb.collection("movies").doc(slug).set(patch, { merge: true });
+    return json({ ok: true });
   } catch (e: any) {
-    const msg = e?.message || "Bad Request";
-    const code =
-      msg === "UNAUTHENTICATED" ? 401 :
-      msg === "FORBIDDEN" ? 403 :
-      msg === "slug_required" ? 400 : 500;
-    return NextResponse.json({ ok: false, error: msg }, { status: code });
+    console.error("PUT /api/admin/movies error:", e);
+    return json({ ok: false, code: e.message || "UNKNOWN" }, e?.code || 500);
   }
 }
 
+/* -------------------------------------------------------------------------- */
+/* 🔴 DELETE */
+/* -------------------------------------------------------------------------- */
 export async function DELETE(req: NextRequest) {
   try {
-    await requireAdmin(req);
+    checkSecret(req);
     const body = await req.json();
     const slug = slugify(String(body.slug || ""));
-    if (!slug) throw new Error("slug_required");
+    if (!slug) return json({ ok: false, code: "slug_required" }, 400);
 
-    const db = getFirestore();
-    await db.collection("movies").doc(slug).delete();
-    return NextResponse.json({ ok: true });
+    await adminDb.collection("movies").doc(slug).delete();
+    return json({ ok: true });
   } catch (e: any) {
-    const msg = e?.message || "Bad Request";
-    const code =
-      msg === "UNAUTHENTICATED" ? 401 :
-      msg === "FORBIDDEN" ? 403 :
-      msg === "slug_required" ? 400 : 500;
-    return NextResponse.json({ ok: false, error: msg }, { status: code });
+    console.error("DELETE /api/admin/movies error:", e);
+    return json({ ok: false, code: e.message || "UNKNOWN" }, e?.code || 500);
   }
 }

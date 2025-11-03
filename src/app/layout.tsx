@@ -1,46 +1,52 @@
-import type { Metadata } from 'next';
-import AppHeader from '@/components/Header';
-import './globals.css';
-
-const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000';
+// src/app/layout.tsx
+import "./globals.css";
+import type { ReactNode } from "react";
+import type { Metadata } from "next";
+import { NextIntlClientProvider } from "next-intl";
+import { cookies } from "next/headers";
+import { defaultLocale, type Locale } from "@/i18n/config";
+import { ThemeProvider } from "next-themes";
+import { UiProvider } from "@/components/ui/UiContext";
 
 export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
-  title: { default: 'UzbeTube', template: '%s | UzbeTube' },
-  icons: [
-    { rel: 'icon', url: '/favicon.ico' },
-    { rel: 'icon', url: '/favicon-32x32.png', sizes: '32x32', type: 'image/png' },
-    { rel: 'icon', url: '/icon-48.png', sizes: '48x48', type: 'image/png' },
-  ],
+  title: "UzbeTube",
+  description: "UzbeTube video platform",
+  // 👇 Favicon va manifest qo'shildi
+  icons: {
+    icon: [
+      { url: "/favicon.png?v=6", type: "image/png", sizes: "any" },
+      { url: "/favicon.ico?v=6" }, // bo'lsa — optional
+    ],
+    shortcut: "/favicon.png?v=6",
+    apple: "/icons/icon-192.png", // bo'lsa
+  },
+  manifest: "/manifest.webmanifest",
+  themeColor: "#000000",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const orgJsonLd = {
-    '@context': 'https://schema.org',
-    '@type': 'Organization',
-    name: 'UzbeTube',
-    url: siteUrl,
-    logo: `${siteUrl}/logo.jpg`, // public/logo.jpg bo'lsa
-  };
+async function getMessages(locale: Locale) {
+  try {
+    const mod = await import(`@/i18n/locales/${locale}.json`);
+    return mod.default;
+  } catch {
+    const mod = await import("@/i18n/locales/uz.json");
+    return mod.default;
+  }
+}
+
+export default async function RootLayout({ children }: { children: ReactNode }) {
+  const cookieStore = await cookies();
+  const locale = (cookieStore.get("locale")?.value || defaultLocale) as Locale;
+  const messages = await getMessages(locale);
 
   return (
-    <html lang="uz">
-      <head>
-        <link rel="canonical" href={siteUrl} />
-        {/* PWA (ixtiyoriy, keyingi bosqich uchun foydali) */}
-        <link rel="manifest" href="/manifest.webmanifest" />
-        <meta name="theme-color" content="#000000" />
-        <link rel="apple-touch-icon" href="/icons/icon-192.png" />
-
-        <script
-          type="application/ld+json"
-          // @ts-ignore
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(orgJsonLd) }}
-        />
-      </head>
+    <html lang={locale} suppressHydrationWarning>
       <body className="antialiased">
-        <AppHeader />
-        {children}
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          <ThemeProvider attribute="class" defaultTheme="system" enableSystem storageKey="uzbetube-theme">
+            <UiProvider>{children}</UiProvider>
+          </ThemeProvider>
+        </NextIntlClientProvider>
       </body>
     </html>
   );

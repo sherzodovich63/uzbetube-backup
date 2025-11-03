@@ -1,13 +1,14 @@
+// src/app/admin/upload/page.tsx
 'use client'
+
 import { useState } from 'react'
-import { db } from '@/lib/firebase-client'
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { getSignedUrl, putToR2 } from '@/lib/r2-upload'
 
 const slugify = (s: string) =>
   s.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-').replace(/-+/g, '-')
 
 export default function UploadPage() {
-  const [secret, setSecret] = useState('')
+  const [secret, setSecret] = useState('')            // ← admin parol (foydalanuvchi kiritadi)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
     title: '',
@@ -20,14 +21,14 @@ export default function UploadPage() {
     published: true,
   })
 
-  // 🔹 Video upload uchun yangi state'lar
   const [videoFile, setVideoFile] = useState<File | null>(null)
-  const [videoUrl, setVideoUrl] = useState<string>('') // serverdan qaytgan URL (public yoki signed)
+  const [videoUrl, setVideoUrl] = useState<string>('') // R2 yuklangandan keyin public URL
   const [uploading, setUploading] = useState(false)
   const [uploadMsg, setUploadMsg] = useState('')
 
   const allow = process.env.NEXT_PUBLIC_ADMIN_SECRET
 
+  // === ADMIN PAROL TEKSHIRISH (parolni sahifada kiritasan) ===
   if (allow && secret !== allow) {
     return (
       <main className="max-w-md mx-auto p-6">
@@ -46,77 +47,80 @@ export default function UploadPage() {
     )
   }
 
-  // 🔹 Mavjud tahrirlash/o‘chirish bo‘limi
-  const [editSlug, setEditSlug] = useState('')
-  const updateTitle = async () => {
-    await fetch('/api/admin/movies', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug: editSlug, title: form.title }),
-    })
-  }
-  const remove = async () => {
-    if (!confirm('O‘chiramizmi?')) return
-    await fetch('/api/admin/movies', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ slug: editSlug }),
-    })
-  }
-
-  // 🔹 Video yuklash handler
+  // === VIDEO YUKLASH (Cloudflare R2, pre-signed URL) ===
   async function handleVideoUpload() {
     if (!videoFile) return alert('Video fayl tanlang')
     setUploading(true)
     setUploadMsg('Yuklanmoqda...')
 
     try {
-      const fd = new FormData()
-      fd.append('file', videoFile)
+      const baseName =
+        form.title ? slugify(form.title).slice(0, 60) : slugify(videoFile.name.replace(/\.[^.]+$/, ''))
+      const ext = videoFile.name.split('.').pop() || 'mp4'
+      const key = `videos/${Date.now()}_${baseName}.${ext}`
 
-      const res = await fetch('/api/admin/upload-video', {
-        method: 'POST',
-        body: fd,
-      })
-      const data = await res.json()
-      if (!res.ok || !data?.ok) throw new Error(data?.error || 'upload_failed')
+      const { putUrl, publicUrl } = await getSignedUrl(key, videoFile.type)
+      await putToR2(putUrl, videoFile)
 
-      setVideoUrl(data.url) // 🔸 public yoki signed URL
+      setVideoUrl(publicUrl)
+
+      // Agar .m3u8 bo'lsa, HLS maydonini auto to'ldiramiz
+      if (publicUrl.endsWith('.m3u8') && !form.hls) {
+        setForm((p) => ({ ...p, hls: publicUrl }))
+      }
+
       setUploadMsg('Yuklandi ✅')
     } catch (e: any) {
       console.error(e)
-      setUploadMsg('Xato: ' + (e.message || 'upload'))
+      setUploadMsg('Xato: ' + (e.message || 'upload_failed'))
     } finally {
       setUploading(false)
     }
   }
 
+  // === SAQLASH (server API orqali, Admin SDK yozadi) ===
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     setSaving(true)
     try {
-      const slug = slugify(form.title) + (form.year ? '-' + form.year : '')
-      const ref = doc(db, 'movies', slug)
-
-      // 🔹 sources massiviga HLS bo‘lsa HLS’ni, video yuklangan bo‘lsa videoUrl’ni ham qo‘shamiz
       const sources: Array<{ type: string; url: string }> = []
       if (form.hls) sources.push({ type: 'hls', url: form.hls })
       if (videoUrl) sources.push({ type: 'file', url: videoUrl })
 
-      await setDoc(ref, {
-        title: form.title,
-        year: form.year ? Number(form.year) : null,
-        description: form.description,
-        posterUrl: form.posterUrl,
-        isPublished: form.published,
-        genres: form.genres ? form.genres.split(',').map((s) => s.trim()) : [],
-        cast: form.cast ? form.cast.split(',').map((s) => s.trim()) : [],
-        sources, // ⬅️ shu yerda
-        createdAt: serverTimestamp(),
+      const res = await fetch('/api/admin/movies', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-secret': secret, 
+        },
+        body: JSON.stringify({
+          title: form.title,
+          year: form.year,
+          description: form.description,
+          posterUrl: form.posterUrl,
+          genres: form.genres, // "Pop, Music" ko'rinishida yuboriladi; serverda massivga ajratiladi
+          cast: form.cast,
+          sources,
+          isPublished: form.published,
+        }),
       })
 
-      alert('Saqlandi: ' + slug)
-      setForm({ title: '', year: '', description: '', posterUrl: '', genres: '', cast: '', hls: '', published: true })
+      const data = await res.json()
+      if (!res.ok || !data?.ok) throw new Error(data?.code || data?.error || 'save_failed')
+
+      alert('Saqlandi: ' + data.slug)
+
+      // Forma reset
+      setForm({
+        title: '',
+        year: '',
+        description: '',
+        posterUrl: '',
+        genres: '',
+        cast: '',
+        hls: '',
+        published: true,
+      })
       setVideoFile(null)
       setVideoUrl('')
       setUploadMsg('')
@@ -127,9 +131,9 @@ export default function UploadPage() {
     }
   }
 
-  // Form helper (sening uslubingni saqladik)
   const set = (k: keyof typeof form) => (e: any) => setForm((p) => ({ ...p, [k]: e.target.value }))
 
+  // === UI ===
   return (
     <main className="max-w-2xl mx-auto p-6">
       <h1 className="text-2xl font-bold mb-6">Yangi film qo‘shish</h1>
@@ -142,10 +146,10 @@ export default function UploadPage() {
         <input className="border rounded-xl p-3" placeholder="Cast (vergul bilan)" value={form.cast} onChange={set('cast')} />
         <textarea className="border rounded-xl p-3" placeholder="Description" value={form.description} onChange={set('description')} />
 
-        {/* 🔹 HLS URL ixtiyoriy, keyin pipeline qo‘ysang ishlatamiz */}
+        {/* ixtiyoriy HLS URL (agar m3u8 tayyor bo'lsa) */}
         <input className="border rounded-xl p-3" placeholder="HLS URL (m3u8)" value={form.hls} onChange={set('hls')} />
 
-        {/* 🔹 VIDEO UPLOAD BLOKI */}
+        {/* Video upload (R2) */}
         <div className="rounded-xl p-4 border border-zinc-700/50">
           <label className="block mb-2 font-medium">Video fayl yuklash</label>
           <div className="flex items-center gap-3">
@@ -179,32 +183,10 @@ export default function UploadPage() {
           <span>Published</span>
         </label>
 
-        <button
-          disabled={saving}
-          className="h-11 rounded-xl bg-black text-white font-medium disabled:opacity-60"
-        >
+        <button disabled={saving} className="h-11 rounded-xl bg-black text-white font-medium disabled:opacity-60">
           {saving ? 'Saqlanmoqda...' : 'Saqlash'}
         </button>
       </form>
-
-      {/* === Tahrirlash / O‘chirish bo‘limi === */}
-      <div className="mt-8 p-4 rounded-xl bg-zinc-900">
-        <h2 className="font-semibold mb-2">Tahrirlash / O‘chirish</h2>
-        <input
-          placeholder="slug"
-          value={editSlug}
-          onChange={(e) => setEditSlug(e.target.value)}
-          className="w-full p-2 rounded bg-zinc-800 mb-2"
-        />
-        <div className="flex gap-2">
-          <button onClick={updateTitle} className="px-3 py-2 rounded bg-white text-black">
-            Sarlavhani yangilash
-          </button>
-          <button onClick={remove} className="px-3 py-2 rounded bg-red-600">
-            O‘chirish
-          </button>
-        </div>
-      </div>
     </main>
   )
 }

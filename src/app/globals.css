@@ -1,26 +1,189 @@
 @import "tailwindcss";
 
+/* Qora+qizil palitra (DARK — default) */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg:       #0b0b0c;
+  --surface:  #121216;
+  --muted:    #151519;
+  --text:     #e6e8ea;
+  --subtle:   #9aa2ad;
+  --ring:     #2a2a33;
+  --accent:   #e11d48;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* LIGHT varianti */
+html.light {
+  --bg:       #f6f7f9;
+  --surface:  #ffffff;
+  --muted:    #eef0f3;
+  --text:     #0b0b0c;
+  --subtle:   #4b5563;
+  --ring:     #d1d5db;
+  --accent:   #e11d48; /* aksent bir xil */
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+/* ⬅️ 1) Brauzer elementlarining (scrollbar, inputs) rang rejimi */
+html { color-scheme: dark; }
+html.light { color-scheme: light; }
+
+/* ⬅️ 2) System fallback (hydrationdan oldin ham to‘g‘ri ko‘rinsin) */
+@media (prefers-color-scheme: light) {
+  /* Agar next-themes class qo‘ymagan bo‘lsa, light palitrani tanla */
+  :root:not(.dark):not(.light) {
+    --bg:       #f6f7f9;
+    --surface:  #ffffff;
+    --muted:    #eef0f3;
+    --text:     #0b0b0c;
+    --subtle:   #4b5563;
+    --ring:     #d1d5db;
+    --accent:   #e11d48;
+    color-scheme: light;
   }
 }
 
+/* Asosiy fon/matn */
+html.dark body,
+html.light body,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* ✅ YUMSHOQ TEMA O‘TISHI */
+html, body, *, *::before, *::after {
+  transition:
+    background-color .2s ease,
+    color            .2s ease,
+    border-color     .2s ease,
+    outline-color    .2s ease,
+    fill             .2s ease,
+    stroke           .2s ease;
+}
+/* Foydalanuvchi animatsiyani kamaytirishni xohlasa — o‘chirib qo‘yamiz */
+@media (prefers-reduced-motion: reduce) {
+  html, body, *, *::before, *::after { transition: none !important; }
+}
+
+/* ⬅️ 3) Tanlangan matn rangi */
+::selection {
+  background: color-mix(in oklab, var(--accent) 30%, transparent);
+  color: var(--text);
+}
+
+/* Scrollbar’ni yashirish */
+@utility no-scrollbar {
+  &::-webkit-scrollbar { display: none; }
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Yuzalar uchun utilitilar */
+@utility bg-surface { background: var(--surface); }
+@utility bg-muted   { background: var(--muted);   }
+@utility text-subtle{ color:      var(--subtle);  }
+@utility ring-base  { outline: 1px solid var(--ring); }
+@utility accent     { color: var(--accent); }
+
+/* ⬅️ Qo‘shimcha: border utili (outline emas, border ishlatayotgan joylar uchun) */
+@utility border-base { border-color: var(--ring); }
+
+/* Klaviatura fokus ko‘rinishi */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Glassmorphism utility */
+@utility glass {
+  background: color-mix(in oklab, var(--surface) 80%, transparent);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border: 1px solid color-mix(in oklab, var(--ring) 60%, transparent);
+}
+/* ===========================
+   UzbeTube Player (scoped)
+   =========================== */
+
+.uzbt-player .player-volume{
+  -webkit-appearance:none;
+  appearance:none;
+  width:100%;
+  height:6px;
+  border-radius:9999px;
+  outline:none;
+  background:rgba(255,255,255,.25);
+}
+
+.uzbt-player .player-volume::-webkit-slider-thumb{
+  -webkit-appearance:none;
+  appearance:none;
+  width:14px;
+  height:14px;
+  border-radius:9999px;
+  background:#fff;
+  border:2px solid rgba(0,0,0,.35);
+  box-shadow:0 0 8px rgba(255,255,255,.35);
+}
+.uzbt-player .player-volume::-moz-range-thumb{
+  width:14px;
+  height:14px;
+  border-radius:9999px;
+  background:#fff;
+  border:2px solid rgba(0,0,0,.35);
+  box-shadow:0 0 8px rgba(255,255,255,.35);
+}
+
+/* Katta play/pause ikon — dumaloqsiz, glow + ripple animatsiya */
+.uzbt-player .flash-glyph{
+  position:relative;
+  color:#fff;
+  filter:
+    drop-shadow(0 8px 28px rgba(0,0,0,.45))
+    drop-shadow(0 0 18px rgba(255,255,255,.35));
+  animation:glyph-pop .43s cubic-bezier(.2,.6,.2,1);
+}
+.uzbt-player .flash-glyph::after{
+  content:"";
+  position:absolute;
+  left:50%;
+  top:50%;
+  width:120px;
+  height:120px;
+  border-radius:9999px;
+  transform:translate(-50%,-50%) scale(.6);
+  border:2px solid rgba(255,255,255,.5);
+  opacity:.6;
+  animation:ripple .43s cubic-bezier(.2,.6,.2,1) forwards;
+}
+
+@keyframes glyph-pop{
+  0%{transform:scale(.7);opacity:0}
+  40%{transform:scale(1.06);opacity:1}
+  100%{transform:scale(1);opacity:0}
+}
+@keyframes ripple{
+  0%{transform:translate(-50%,-50%) scale(.6);opacity:.6}
+  100%{transform:translate(-50%,-50%) scale(1.05);opacity:0}
+}
+:root {
+  /* Header balandligi (sticky offset). O'zingga moslab o'zgartir. */
+  --header-h: 64px;
+}
+.uzbt-theater-wrapper {
+  position: relative;
+  width: 100%;
+  max-width: 1600px;
+  margin-inline: auto;
+  aspect-ratio: 16 / 9;
+  border-radius: 1rem;
+  overflow: hidden;
+  background: #000;
+}
+.uzbt-theater-video {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  object-fit: contain;
+  background: #000;
 }

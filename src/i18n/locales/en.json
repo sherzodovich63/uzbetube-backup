@@ -1,0 +1,39 @@
+{
+  "categories": {
+    "home": "Home",
+    "films": "Movies",
+    "series": "Series",
+    "sport": "Sport",
+    "music": "Music",
+    "podcast": "Podcast"
+  },
+  "search": { "placeholder": "Search..." },
+  "auth": { "login": "Log in" },
+  "aria": {
+    "open_menu": "Open menu",
+    "logo": "UzbeTube home",
+    "upload": "Upload"
+  },
+  "empty": {
+    "title": "No content yet",
+    "desc": "When new movies are added, they'll appear here.",
+    "cta": "Upload a movie"
+  },
+  "feed": {
+    "movies": "Movies",
+    "loadMore": "Load more"
+  },
+  "movie": {
+    "notFound": "Video not found.",
+    "share": "Share",
+    "like": "Like",
+    "save": "Save",
+    "subscribe": "Subscribe",
+    "views": "{count} views",
+    "description": "Description",
+    "year": "Year",
+    "duration": "Duration",
+    "genre": "Genre",
+    "more": "More"
+  }
+}

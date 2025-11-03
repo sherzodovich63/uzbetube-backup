@@ -2,6 +2,9 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
+// ✅ i18n: brauzer tilidan cookie qo'yish uchun
+import { locales, defaultLocale } from "@/i18n/config";
+
 // Upstash rate-limit (bor bo'lsa avtomatik yoqiladi)
 let ratelimit: any = null;
 (async () => {
@@ -33,12 +36,29 @@ export async function middleware(req: NextRequest) {
   const { pathname, search } = req.nextUrl;
   const isProd = process.env.NODE_ENV === "production";
 
+  // ⚙️ Oldindan "next" javobini tayyorlab qo'yamiz (cookie/header qo'yish uchun)
+  const res = NextResponse.next();
+
   // 0) HTTPS majburiy (prod)
   const proto = req.headers.get("x-forwarded-proto");
   if (isProd && proto && proto !== "https") {
     const url = new URL(req.url);
     url.protocol = "https:";
     return NextResponse.redirect(url);
+  }
+
+  // 0.1) 🌐 i18n locale cookie (faqat public yo'llarda)
+  // admin/api emas bo'lsa, 'locale' cookie yo'q bo'lsa — qo'yib yuboramiz
+  if (!pathname.startsWith("/admin") && !pathname.startsWith("/api")) {
+    const have = req.cookies.get("locale")?.value;
+    if (!have) {
+      const al = (req.headers.get("accept-language") || "").toLowerCase();
+      const guess = locales.find((l) => al.startsWith(l)) || defaultLocale;
+      res.cookies.set("locale", guess, {
+        path: "/",
+        maxAge: 60 * 60 * 24 * 365, // 1 yil
+      });
+    }
   }
 
   // 1) IP allowlist (faqat /admin yo'llari uchun, ixtiyoriy)
@@ -78,8 +98,8 @@ export async function middleware(req: NextRequest) {
   // 3) /admin/* uchun RBAC (cookie-based login yoki Basic Auth fallback)
   if (pathname.startsWith("/admin")) {
     const session = req.cookies.get("sherz_session")?.value;
-    const role = req.cookies.get("sherz_role")?.value;     // "admin" | "editor" | "user"
-    const adminFlag = req.cookies.get("admin")?.value;     // "1" bo'lsa admin (Firebase oqimingdan)
+    const role = req.cookies.get("sherz_role")?.value; // "admin" | "editor" | "user"
+    const adminFlag = req.cookies.get("admin")?.value; // "1" bo'lsa admin (Firebase oqimingdan)
 
     const hasCookieAccess =
       Boolean(session) && (role === "admin" || role === "editor" || adminFlag === "1");
@@ -92,7 +112,9 @@ export async function middleware(req: NextRequest) {
         url.pathname = "/admin";
         return NextResponse.redirect(url);
       }
-      return NextResponse.next();
+      // locale cookie allaqachon qo'yilgan bo'lishi mumkin (yuqorida)
+      res.headers.set("x-request-start", String(Date.now()));
+      return res;
     }
 
     // Cookie yo'q/yetarli emas -> Basic Auth fallback (agar env berilgan bo'lsa)
@@ -105,13 +127,13 @@ export async function middleware(req: NextRequest) {
 
       // Authorization yo'q yoki noto'g'ri bo'lsa — prompt
       if (!creds || creds.user !== U || creds.pass !== P) {
-        const res = new NextResponse("Authentication required", { status: 401 });
-        res.headers.set("WWW-Authenticate", 'Basic realm="Admin Area"');
-        return res;
+        const prompt = new NextResponse("Authentication required", { status: 401 });
+        prompt.headers.set("WWW-Authenticate", 'Basic realm="Admin Area"');
+        return prompt;
       }
 
       // Basic Auth muvaffaqiyatli: session/cookie qo'yib yuboramiz (admin sifatida)
-      const res = NextResponse.next();
+      const ok = NextResponse.next();
       const baseCookie = {
         httpOnly: true,
         secure: isProd,
@@ -119,9 +141,9 @@ export async function middleware(req: NextRequest) {
         path: "/",
         maxAge: 60 * 60 * 8, // 8 soat
       };
-      res.cookies.set("sherz_session", "1", baseCookie);
-      res.cookies.set("sherz_role", "admin", baseCookie);
-      res.cookies.set("admin", "1", baseCookie);
+      ok.cookies.set("sherz_session", "1", baseCookie);
+      ok.cookies.set("sherz_role", "admin", baseCookie);
+      ok.cookies.set("admin", "1", baseCookie);
 
       // Agar /admin/login bo'lsa — dashboardga redirect
       if (pathname.startsWith("/admin/login")) {
@@ -129,11 +151,11 @@ export async function middleware(req: NextRequest) {
         url.pathname = "/admin";
         return NextResponse.redirect(url);
       }
-      return res;
+      ok.headers.set("x-request-start", String(Date.now()));
+      return ok;
     }
 
     // Cookie yo'q, Basic Auth ham yo'q -> login sahifaga yuboramiz
-    // (Sen app ichida /login yoki /admin/login ishlatganingga qarab tanla)
     const loginPath = "/login"; // yoki "/admin/login"
     const url = req.nextUrl.clone();
     url.pathname = loginPath;
@@ -142,14 +164,12 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // 4) odatiy
-  const res = NextResponse.next();
-  // Log uchun minimal timing mark
+  // 4) Odaty — locale cookie qo'yilgan bo'lishi mumkin
   res.headers.set("x-request-start", String(Date.now()));
   return res;
 }
 
+// ❗ matcher'ni kengaytirdik: public sahifalarda locale cookie qo'yish uchun
 export const config = {
-  // Admin uchun guard + API uchun rate-limit
-  matcher: ["/admin/:path*", "/api/:path*"],
+  matcher: ["/admin/:path*", "/api/:path*", "/((?!_next|.*\\..*).*)"],
 };

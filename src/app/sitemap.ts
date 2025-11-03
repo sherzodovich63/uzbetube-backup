@@ -1,17 +1,23 @@
-import { initClient } from '@/lib/firebase-client';
-import { getFirestore, collection, query, where, getDocs } from 'firebase/firestore';
+import { app } from "@/lib/firebase-client";
+import { getFirestore, collection, getDocs, query, where } from "firebase/firestore";
 
 export default async function sitemap() {
-  initClient();
-  const db = getFirestore();
-  const q  = query(collection(db, 'movies'), where('isPublished','==', true));
-  const snap = await getDocs(q);
-  const base = process.env.NEXT_PUBLIC_SITE_URL!;
-  return snap.docs.map(d => {
-    const m = d.data() as any;
+  const base = process.env.NEXT_PUBLIC_BASE_URL ?? "http://localhost:3000";
+  const db = getFirestore(app);
+  const snap = await getDocs(query(collection(db, "movies"), where("isPublished", "==", true)));
+
+  const movieUrls = snap.docs.map((d) => {
+    const m: any = d.data();
     return {
       url: `${base}/movie/${m.slug}`,
-      lastModified: new Date(m.updatedAt || m.createdAt || Date.now()),
+      lastModified: new Date().toISOString(),
+      changeFrequency: "weekly" as const,
+      priority: 0.8,
     };
   });
+
+  return [
+    { url: `${base}/`, lastModified: new Date().toISOString(), changeFrequency: "daily" as const, priority: 1 },
+    ...movieUrls,
+  ];
 }

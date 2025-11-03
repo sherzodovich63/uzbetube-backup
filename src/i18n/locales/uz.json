@@ -1,0 +1,39 @@
+{
+  "categories": {
+    "home": "Bosh sahifa",
+    "films": "Filmlar",
+    "series": "Seriallar",
+    "sport": "Sport",
+    "music": "Musiqa",
+    "podcast": "Podkast"
+  },
+  "search": { "placeholder": "Qidirish..." },
+  "auth": { "login": "Kirish" },
+  "aria": {
+    "open_menu": "Menyuni ochish",
+    "logo": "UzbeTube bosh sahifa",
+    "upload": "Yuklash"
+  },
+  "empty": {
+    "title": "Hozircha kontent yo‘q",
+    "desc": "Yangi filmlar qo‘shilganda bu yerda paydo bo‘ladi.",
+    "cta": "Film yuklash"
+  },
+  "feed": {
+    "movies": "Filmlar",
+    "loadMore": "Yana ko‘rish"
+  },
+  "movie": {
+    "notFound": "Video topilmadi.",
+    "share": "Ulashish",
+    "like": "Yoqqan",
+    "save": "Saqlash",
+    "subscribe": "Obuna bo‘lish",
+    "views": "{count} marta ko‘rildi",
+    "description": "Tavsif",
+    "year": "Yil",
+    "duration": "Davomiyligi",
+    "genre": "Janr",
+    "more": "Yana"
+  }
+}
