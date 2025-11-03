@@ -79,7 +79,6 @@ pnpm-debug.log*
 # 🧩 TypeScript / Build Info
 # =============================
 *.tsbuildinfo
-next-env.d.ts
 
 # =============================
 # 📁 Optional caches
